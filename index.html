@@ -640,5 +640,34 @@
             }
         }
     </script>
+    <!-- Firebase 실시간 동기화 스크립트 -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getDatabase, ref, set, onValue, update, get } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+  // 1. 본인의 파이어베이스 콘솔에서 복사한 설정값을 여기에 입력하세요
+const firebaseConfig = {
+  apiKey: "AIzaSyA1LeI76Uzq6ABxIqIIV-B2lEm6DkA7CD4",
+  authDomain: "jangstarkschedule.firebaseapp.com",
+  databaseURL: "https://jangstarkschedule-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "jangstarkschedule",
+  storageBucket: "jangstarkschedule.firebasestorage.app",
+  messagingSenderId: "985872117918",
+  appId: "1:985872117918:web:854fe8fec8cdb8452f0b8f",
+  measurementId: "G-NGS43ZLR5J"
+};
+
+  // 2. Firebase 초기화 및 전역 연결
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  
+  // 앱 내 다른 자바스크립트 함수에서 db를 사용할 수 있도록 등록
+  window.db = db;
+  window.firebaseRef = ref;
+  window.firebaseSet = set;
+  window.firebaseOnValue = onValue;
+  window.firebaseUpdate = update;
+  window.firebaseGet = get;
+</script>
 </body>
 </html>
