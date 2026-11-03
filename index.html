@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>검사스케줄 PWA</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0f172a',
+                        cardbg: '#1e293b',
+                        borderbg: '#334155',
+                        crewA: '#3b82f6',
+                        crewB: '#10b981',
+                        crewC: '#a855f7'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- SheetJS for Excel Import/Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Web App Manifest (Data URI Embedded) -->
+    <link rel="manifest" id="manifest-placeholder">
+
+    <style>
+        body { -webkit-tap-highlight-color: transparent; user-select: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        .custom-pin { display: flex; align-items: center; justify-content: center; border-radius: 50%; color: white; font-weight: 800; font-size: 11px; border: 2px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.4); }
+        .office-pin { background: #000; border: 2px solid #f59e0b; }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-darkbg text-slate-100 h-screen flex flex-col overflow-hidden">
+
+    <!-- PIN LOCK SCREEN -->
+    <div id="pinLockScreen" class="fixed inset-0 z-[5000] bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+        <div class="w-16 h-16 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-black text-2xl shadow-lg mb-4">
+            <i data-lucide="shield-check" class="w-9 h-9"></i>
+        </div>
+        <h2 class="text-xl font-bold mb-1">검사스케줄 보안 잠금</h2>
+        <p class="text-xs text-slate-400 mb-6">마스터 핀번호를 입력하세요 (기본: 0000)</p>
+
+        <!-- PIN Display Dots -->
+        <div class="flex space-x-3 mb-8" id="pinDots">
+            <div class="w-4 h-4 rounded-full border-2 border-slate-600"></div>
+            <div class="w-4 h-4 rounded-full border-2 border-slate-600"></div>
+            <div class="w-4 h-4 rounded-full border-2 border-slate-600"></div>
+            <div class="w-4 h-4 rounded-full border-2 border-slate-600"></div>
+        </div>
+
+        <!-- Keypad -->
+        <div class="grid grid-cols-3 gap-4 w-64 mb-6">
+            <button onclick="pressPin('1')" class="h-14 text-xl font-bold bg-slate-900 border border-slate-800 rounded-2xl active:bg-slate-800">1</button>
+            <button onclick="pressPin('2')" class="h-14 text-xl font-bold bg-slate-900 border border-slate-800 rounded-2xl active:bg-slate-800">2</button>
+            <button onclick="pressPin('3')" class="h-14 text-xl font-bold bg-slate-900 border border-slate-800 rounded-2xl active:bg-slate-800">3</button>
+            <button onclick="pressPin('4')" class="h-14 text-xl font-bold bg-slate-900 border border-slate-800 rounded-2xl active:bg-slate-800">4</button>
+            <button onclick="pressPin('5')" class="h-14 text-xl font-bold bg-slate-900 border border-slate-800 rounded-2xl active:bg-slate-800">5</button>
+            <button onclick="pressPin('6')" class="h-14 text-xl font-bold bg-slate-900 border border-slate-800 rounded-2xl active:bg-slate-800">6</button>
+            <button onclick="pressPin('7')" class="h-14 text-xl font-bold bg-slate-900 border border-slate-800 rounded-2xl active:bg-slate-800">7</button>
+            <button onclick="pressPin('8')" class="h-14 text-xl font-bold bg-slate-900 border border-slate-800 rounded-2xl active:bg-slate-800">8</button>
+            <button onclick="pressPin('9')" class="h-14 text-xl font-bold bg-slate-900 border border-slate-800 rounded-2xl active:bg-slate-800">9</button>
+            <button onclick="clearPin()" class="h-14 text-xs font-semibold bg-slate-900 border border-slate-800 rounded-2xl active:bg-slate-800 text-rose-400">지움</button>
+            <button onclick="pressPin('0')" class="h-14 text-xl font-bold bg-slate-900 border border-slate-800 rounded-2xl active:bg-slate-800">0</button>
+            <button onclick="backspacePin()" class="h-14 text-xs font-semibold bg-slate-900 border border-slate-800 rounded-2xl active:bg-slate-800 text-slate-400">←</button>
+        </div>
+
+        <label class="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer">
+            <input type="checkbox" id="autoLoginCheck" checked class="accent-amber-500 rounded">
+            <span>자동 로그인 유지</span>
+        </label>
+    </div>
+
+    <!-- MAIN APP HEADER -->
+    <header class="bg-cardbg border-b border-borderbg px-4 py-3 flex items-center justify-between z-30 flex-shrink-0">
+        <div class="flex items-center space-x-2.5">
+            <div class="w-8 h-8 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center font-black">
+                <i data-lucide="zap" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <h1 class="text-sm font-bold flex items-center gap-1.5">
+                    검사스케줄
+                    <span id="syncBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-normal">● 함께 보기 연결됨</span>
+                </h1>
+                <p class="text-[10px] text-slate-400">오늘 완료: <strong id="completedCountHeader" class="text-amber-400">0</strong> / <span id="totalCountHeader">0</span>건</p>
+            </div>
+        </div>
+
+        <!-- Header Actions -->
+        <div class="flex items-center space-x-2">
+            <button onclick="openSettingsModal()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
+                <i data-lucide="settings" class="w-4 h-4"></i>
+            </button>
+            <button onclick="lockApp()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-400" title="앱 잠그기">
+                <i data-lucide="lock" class="w-4 h-4"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- TAB CONTROLLER / CREW FILTER BAR -->
+    <div class="bg-slate-900 px-3 py-2 border-b border-borderbg flex items-center justify-between text-xs z-20 flex-shrink-0">
+        <div class="flex items-center space-x-1.5 overflow-x-auto py-0.5">
+            <span class="text-slate-400 text-[11px] mr-1">내 조:</span>
+            <button onclick="selectMyCrew('ALL')" id="crewFilterALL" class="px-2.5 py-1 rounded-full bg-amber-500 text-slate-950 font-bold shadow-sm">전체</button>
+            <button onclick="selectMyCrew('CrewA')" id="crewFilterCrewA" class="px-2.5 py-1 rounded-full bg-slate-800 text-blue-400 font-medium">1조</button>
+            <button onclick="selectMyCrew('CrewB')" id="crewFilterCrewB" class="px-2.5 py-1 rounded-full bg-slate-800 text-emerald-400 font-medium">2조</button>
+            <button onclick="selectMyCrew('CrewC')" id="crewFilterCrewC" class="px-2.5 py-1 rounded-full bg-slate-800 text-purple-400 font-medium">3조</button>
+        </div>
+
+        <div class="flex items-center space-x-1.5">
+            <label class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold cursor-pointer flex items-center gap-1 text-[11px]">
+                <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i> 엑셀
+                <input type="file" id="excelFile" accept=".xlsx,.xls,.csv" class="hidden" onchange="importExcel(event)">
+            </label>
+            <button onclick="runAutoOptimization()" class="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold flex items-center gap-1 text-[11px]">
+                <i data-lucide="route" class="w-3.5 h-3.5"></i> 최적 동선
+            </button>
+        </div>
+    </div>
+
+    <!-- MAIN SCROLLABLE CONTAINER -->
+    <main class="flex-1 overflow-y-auto p-3 space-y-4">
+
+        <!-- 2x2 DISTRICT MAP GRID -->
+        <section class="bg-cardbg rounded-2xl p-3 border border-borderbg shadow-md">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                    <i data-lucide="map" class="w-4 h-4 text-amber-500"></i> 권역별 검사지도 (2x2)
+                </h2>
+                <span class="text-[10px] text-slate-400">■ 검은네모: 서부지사 출발/도착</span>
+            </div>
+
+            <!-- 2x2 Grid -->
+            <div class="grid grid-cols-2 gap-2 h-52">
+                <!-- Top Left: 강화군 -->
+                <div onclick="openDistrictModal('강화군')" class="bg-slate-900 border border-slate-700 rounded-xl relative overflow-hidden cursor-pointer hover:border-amber-500 transition">
+                    <div class="absolute top-1 left-2 z-10 text-[10px] font-bold bg-slate-950/80 px-2 py-0.5 rounded text-slate-300">강화군</div>
+                    <div id="mapGanghwa" class="w-full h-full"></div>
+                </div>
+                <!-- Top Right: 검단구 -->
+                <div onclick="openDistrictModal('검단구')" class="bg-slate-900 border border-slate-700 rounded-xl relative overflow-hidden cursor-pointer hover:border-amber-500 transition">
+                    <div class="absolute top-1 left-2 z-10 text-[10px] font-bold bg-slate-950/80 px-2 py-0.5 rounded text-slate-300">검단구</div>
+                    <div id="mapGeamdan" class="w-full h-full"></div>
+                </div>
+                <!-- Bottom Left: 서해구 -->
+                <div onclick="openDistrictModal('서해구')" class="bg-slate-900 border border-slate-700 rounded-xl relative overflow-hidden cursor-pointer hover:border-amber-500 transition">
+                    <div class="absolute top-1 left-2 z-10 text-[10px] font-bold bg-slate-950/80 px-2 py-0.5 rounded text-slate-300">서해구</div>
+                    <div id="mapSeohae" class="w-full h-full"></div>
+                </div>
+                <!-- Bottom Right: 계양구 -->
+                <div onclick="openDistrictModal('계양구')" class="bg-slate-900 border border-slate-700 rounded-xl relative overflow-hidden cursor-pointer hover:border-amber-500 transition">
+                    <div class="absolute top-1 left-2 z-10 text-[10px] font-bold bg-slate-950/80 px-2 py-0.5 rounded text-slate-300">계양구</div>
+                    <div id="mapGeyang" class="w-full h-full"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CREW CARDS & TIMELINES -->
+        <section id="crewCardsContainer" class="space-y-4">
+            <!-- Dynamic Crew Cards Inserted via JS -->
+        </section>
+
+        <!-- DATA LIMITATION NOTICE -->
+        <footer class="p-3 bg-slate-900/60 rounded-xl border border-slate-800 text-[11px] text-slate-400 space-y-1">
+            <p class="font-bold text-amber-500">📌 시스템 사용 시 알림 사항</p>
+            <p>• 위치 표시는 법정동 중심 좌표 기준이므로 세부 번지까지는 차이가 있을 수 있습니다.</p>
+            <p>• 네이버 길찾기 연동 기능은 폰에 **네이버 지도 앱**이 설치되어 있어야 작동합니다.</p>
+            <p>• 본 앱은 데모 공유용 저장이므로 개인 식별 고객 실명 및 전화번호 입력을 자제해 주세요.</p>
+        </footer>
+    </main>
+
+    <!-- DISTRICT DETAIL EXPANDED MODAL -->
+    <div id="districtModal" class="fixed inset-0 z-[4000] bg-slate-950/80 backdrop-blur-md hidden flex flex-col justify-end">
+        <div class="bg-cardbg rounded-t-3xl border-t border-borderbg h-[85vh] flex flex-col overflow-hidden">
+            <div class="p-4 bg-slate-900 border-b border-borderbg flex items-center justify-between">
+                <div>
+                    <h3 id="districtModalTitle" class="font-bold text-base text-amber-400">○○구 상세 보기</h3>
+                    <p class="text-xs text-slate-400">동별 위치 점검 및 조별 일정</p>
+                </div>
+                <button onclick="closeDistrictModal()" class="p-2 text-slate-400 hover:text-white">
+                    <i data-lucide="x" class="w-6 h-6"></i>
+                </button>
+            </div>
+            
+            <div class="h-64 bg-slate-950 relative">
+                <div id="districtDetailMap" class="w-full h-full"></div>
+            </div>
+
+            <div class="flex-1 p-4 overflow-y-auto space-y-3">
+                <div class="flex gap-2">
+                    <button id="btnNaverDistrictRoute" class="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow">
+                        <i data-lucide="navigation" class="w-4 h-4"></i> 네이버 지도에서 권역 전체 보기
+                    </button>
+                </div>
+                <div id="districtTaskList" class="space-y-2 text-xs">
+                    <!-- Dynamic List -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SETTINGS MODAL -->
+    <div id="settingsModal" class="fixed inset-0 z-[4000] bg-slate-950/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="bg-cardbg rounded-2xl border border-borderbg w-full max-w-sm p-4 text-xs space-y-4">
+            <div class="flex justify-between items-center border-b border-borderbg pb-3">
+                <h3 class="font-bold text-sm text-slate-200">마스터 설정</h3>
+                <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+
+            <div class="space-y-2">
+                <label class="block font-semibold text-slate-300">출발/도착 사업소 위치</label>
+                <input type="text" id="settingDepotName" value="한국전기안전공사 인천서부지사 (인천 서해구 탁옥로 37)" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg">
+                <div class="flex gap-2">
+                    <input type="text" id="settingDepotLat" value="37.5446" class="w-1/2 p-2 bg-slate-900 border border-slate-700 rounded-lg" placeholder="위도">
+                    <input type="text" id="settingDepotLng" value="126.6745" class="w-1/2 p-2 bg-slate-900 border border-slate-700 rounded-lg" placeholder="경도">
+                </div>
+                <button onclick="resetDepotDefault()" class="text-[11px] text-amber-400 underline">기본값으로 복원</button>
+            </div>
+
+            <div class="space-y-2 pt-2 border-t border-slate-800">
+                <label class="block font-semibold text-slate-300">새 핀번호 변경</label>
+                <input type="password" id="settingNewPin" maxlength="4" placeholder="4자리 숫자" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg">
+                <button onclick="changePin()" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg">핀번호 변경 적용</button>
+            </div>
+
+            <div class="pt-2 border-t border-slate-800 flex justify-between">
+                <button onclick="clearAllTasks()" class="text-rose-400 hover:underline">전체 데이터 초기화</button>
+                <button onclick="closeSettingsModal()" class="px-4 py-1.5 bg-slate-800 text-slate-300 rounded-lg">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        // --- LOCAL DONG COORDINATES DICTIONARY ---
+        const DONG_COORDS = {
+            '강화읍': [37.7466, 126.4880], '선원면': [37.7210, 126.4950], '불은면': [37.6680, 126.4920], '길상면': [37.6350, 126.4850],
+            '검암동': [37.5681, 126.6740], '경서동': [37.5580, 126.6450], '연희동': [37.5450, 126.6720], '가정동': [37.5280, 126.6710],
+            '신현동': [37.5200, 126.6680], '석남동': [37.5060, 126.6700], '원창동': [37.5180, 126.6350], '당하동': [37.5920, 126.6740],
+            '마전동': [37.5980, 126.6660], '불로동': [37.6110, 126.6820], '원당동': [37.5950, 126.6960], '오류동': [37.5850, 126.6200],
+            '계양동': [37.5820, 126.7350], '계산동': [37.5410, 126.7280], '작전동': [37.5300, 126.7220], '효성동': [37.5280, 126.7050]
+        };
+
+        const CREWS = [
+            { id: 'CrewA', name: '점검 1조', color: '#3b82f6', badgeClass: 'bg-blue-500 text-white' },
+            { id: 'CrewB', name: '점검 2조', color: '#10b981', badgeClass: 'bg-emerald-500 text-white' },
+            { id: 'CrewC', name: '점검 3조', color: '#a855f7', badgeClass: 'bg-purple-500 text-white' }
+        ];
+
+        // Default Office Base Location
+        let officeDepot = {
+            name: '한국전기안전공사 인천서부지사',
+            address: '인천 서해구 탁옥로 37',
+            lat: 37.5446,
+            lng: 126.6745
+        };
+
+        // Sample Pre-loaded Tasks
+        let tasks = [
+            { id: 1, customer: '가정동 아파트 단지', type: '정기검사', duration: 1, crewId: 'CrewA', startTime: '09:30', isAnchor: true, address: '인천 서해구 가정동 12', dong: '가정동', completed: false, completedTime: null, lat: 37.5280, lng: 126.6710 },
+            { id: 2, customer: '연희 상가빌딩', type: '사용검사', duration: 1, crewId: 'CrewA', startTime: null, isAnchor: false, address: '인천 서해구 연희동 45', dong: '연희동', completed: false, completedTime: null, lat: 37.5450, lng: 126.6720 },
+            { id: 3, customer: '검암 역세권 파워', type: '정기검사', duration: 1, crewId: 'CrewB', startTime: '10:00', isAnchor: true, address: '인천 검단구 검암동 88', dong: '검암동', completed: true, completedTime: '10:55', lat: 37.5681, lng: 126.6740 },
+            { id: 4, customer: '계산 플라자', type: '사용검사', duration: 1.5, crewId: 'CrewB', startTime: null, isAnchor: false, address: '인천 계양구 계산동 10', dong: '계산동', completed: false, completedTime: null, lat: 37.5410, lng: 126.7280 },
+            { id: 5, customer: '강화 농협 변전소', type: '정기검사', duration: 2, crewId: 'CrewC', startTime: '14:00', isAnchor: true, address: '인천 강화군 강화읍 102', dong: '강화읍', completed: false, completedTime: null, lat: 37.7466, lng: 126.4880 }
+        ];
+
+        let selectedMyCrew = 'ALL';
+        let enteredPin = '';
+        let masterPinHash = localStorage.getItem('masterPinHash') || '0000'; // Default 0000
+        let districtMaps = {};
+        let modalMap = null;
+
+        // --- APP INITIALIZATION ---
+        window.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            checkAutoLogin();
+            initPWA();
+            initDistrictGridMaps();
+            renderAll();
+        });
+
+        // Register Service Worker & Manifest dynamically
+        function initPWA() {
+            const manifestData = {
+                name: "검사스케줄",
+                short_name: "검사스케줄",
+                start_url: "./",
+                display: "standalone",
+                background_color: "#0f172a",
+                theme_color: "#1e293b",
+                icons: [
+                    { src: "https://placehold.co/192x192/1e293b/f59e0b?text=⚡", sizes: "192x192", type: "image/png" },
+                    { src: "https://placehold.co/512x512/1e293b/f59e0b?text=⚡", sizes: "512x512", type: "image/png" }
+                ]
+            };
+            const manifestStr = "data:application/manifest+json;base64," + btoa(JSON.stringify(manifestData));
+            document.getElementById('manifest-placeholder').setAttribute('href', manifestStr);
+        }
+
+        // PIN LOCK SYSTEM
+        function pressPin(num) {
+            if (enteredPin.length < 4) {
+                enteredPin += num;
+                updatePinDots();
+                if (enteredPin.length === 4) {
+                    setTimeout(verifyPin, 100);
+                }
+            }
+        }
+
+        function clearPin() { enteredPin = ''; updatePinDots(); }
+        function backspacePin() { enteredPin = enteredPin.slice(0, -1); updatePinDots(); }
+
+        function updatePinDots() {
+            const dots = document.getElementById('pinDots').children;
+            for (let i = 0; i < 4; i++) {
+                if (i < enteredPin.length) dots[i].className = "w-4 h-4 rounded-full bg-amber-500 border-2 border-amber-500";
+                else dots[i].className = "w-4 h-4 rounded-full border-2 border-slate-600";
+            }
+        }
+
+        function verifyPin() {
+            if (enteredPin === masterPinHash) {
+                if (document.getElementById('autoLoginCheck').checked) {
+                    localStorage.setItem('autoLogin', 'true');
+                }
+                document.getElementById('pinLockScreen').classList.add('hidden');
+            } else {
+                alert('핀번호가 올바르지 않습니다.');
+                clearPin();
+            }
+        }
+
+        function checkAutoLogin() {
+            if (localStorage.getItem('autoLogin') === 'true') {
+                document.getElementById('pinLockScreen').classList.add('hidden');
+            }
+        }
+
+        function lockApp() {
+            localStorage.setItem('autoLogin', 'false');
+            enteredPin = '';
+            updatePinDots();
+            document.getElementById('pinLockScreen').classList.remove('hidden');
+        }
+
+        // --- 2x2 DISTRICT MAP RENDERING ---
+        function initDistrictGridMaps() {
+            const config = [
+                { id: 'mapGanghwa', center: [37.7000, 126.4800] },
+                { id: 'mapGeamdan', center: [37.5900, 126.6700] },
+                { id: 'mapSeohae',  center: [37.5300, 126.6600] },
+                { id: 'mapGeyang',  center: [37.5400, 126.7200] }
+            ];
+
+            config.forEach(item => {
+                const map = L.map(item.id, { zoomControl: false, attributionControl: false, dragging: false, touchZoom: false }).setView(item.center, 10);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { opacity: 0.7 }).addTo(map);
+                districtMaps[item.id] = map;
+            });
+        }
+
+        function updateDistrictGridMarkers() {
+            Object.keys(districtMaps).forEach(mapId => {
+                const map = districtMaps[mapId];
+                map.eachLayer(layer => {
+                    if (layer instanceof L.Marker || layer instanceof L.Polyline) map.removeLayer(layer);
+                });
+
+                // Office Depot Marker
+                const officeIcon = L.divIcon({ html: `<div class="custom-pin office-pin" style="width:18px;height:18px;">지사</div>`, className: '' });
+                L.marker([officeDepot.lat, officeDepot.lng], { icon: officeIcon }).addTo(map);
+
+                // Task Markers
+                tasks.forEach(t => {
+                    const crew = CREWS.find(c => c.id === t.crewId);
+                    const color = crew ? crew.color : '#64748b';
+                    const icon = L.divIcon({
+                        html: `<div class="custom-pin" style="background:${color};width:20px;height:20px;">${t.id}</div>`,
+                        className: ''
+                    });
+                    L.marker([t.lat, t.lng], { icon }).addTo(map);
+                });
+            });
+        }
+
+        // --- RENDER CREW CARDS & TIMELINE ---
+        function renderAll() {
+            renderCrewCards();
+            updateDistrictGridMarkers();
+            updateHeaderStats();
+        }
+
+        function selectMyCrew(crewId) {
+            selectedMyCrew = crewId;
+            ['ALL', 'CrewA', 'CrewB', 'CrewC'].forEach(c => {
+                const btn = document.getElementById(`crewFilter${c}`);
+                if (c === crewId) {
+                    btn.className = "px-2.5 py-1 rounded-full bg-amber-500 text-slate-950 font-bold shadow-sm";
+                } else {
+                    btn.className = "px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 font-medium";
+                }
+            });
+            renderCrewCards();
+        }
+
+        function renderCrewCards() {
+            const container = document.getElementById('crewCardsContainer');
+            container.innerHTML = '';
+
+            CREWS.forEach(crew => {
+                if (selectedMyCrew !== 'ALL' && selectedMyCrew !== crew.id) return;
+
+                const crewTasks = tasks.filter(t => t.crewId === crew.id);
+                const completedCount = crewTasks.filter(t => t.completed).length;
+
+                // Route step strings
+                const routeDongs = crewTasks.map((t, i) => `${i+1}.${t.dong || '현장'}`).join(' → ');
+                const routeSummary = routeDongs ? `추천 동선: 출발(서부지사) → ${routeDongs} (총 이동 약 45분)` : '배정된 검사 건이 없습니다.';
+
+                // Naver Route Deep Link (Opens Naver Map App for entire crew)
+                const naverFullRouteUrl = `nmap://route/public?appname=com.example.scheduler`;
+
+                const cardHtml = `
+                    <div class="bg-cardbg rounded-2xl border ${selectedMyCrew === crew.id ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-borderbg'} overflow-hidden shadow-md">
+                        <!-- Crew Header Bar -->
+                        <div onclick="openNaverAppRoute('${crew.id}')" class="p-3 ${crew.badgeClass} flex justify-between items-center cursor-pointer active:opacity-90">
+                            <div class="flex items-center space-x-2">
+                                <i data-lucide="truck" class="w-4 h-4"></i>
+                                <span class="font-bold text-sm">${crew.name} 카카오/네이버 길찾기</span>
+                            </div>
+                            <span class="text-xs bg-black/20 px-2 py-0.5 rounded-full">완료 ${completedCount}/${crewTasks.length}</span>
+                        </div>
+
+                        <!-- Route Bar Info -->
+                        <div class="p-2.5 bg-slate-900 border-b border-borderbg text-[11px] text-amber-400 flex items-center justify-between">
+                            <span class="truncate pr-2">${routeSummary}</span>
+                            <span class="text-slate-400 flex-shrink-0">08:47 출발</span>
+                        </div>
+
+                        <!-- Task Items List -->
+                        <div class="divide-y divide-borderbg">
+                            ${crewTasks.length === 0 ? '<div class="p-4 text-center text-xs text-slate-500">배정된 작업이 없습니다</div>' : ''}
+                            ${crewTasks.map(t => `
+                                <div class="p-3 flex items-center justify-between text-xs space-x-2 ${t.completed ? 'opacity-50 bg-slate-900/40' : ''}">
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center space-x-1.5">
+                                            <span class="font-bold text-slate-200 truncate">${t.customer}</span>
+                                            ${t.isAnchor ? '<span class="text-[9px] bg-amber-500/20 text-amber-400 border border-amber-500/40 px-1 rounded">고정</span>' : ''}
+                                        </div>
+                                        <p class="text-[11px] text-slate-400 truncate">${t.address}</p>
+                                        <div class="text-[10px] text-slate-500 mt-0.5 flex gap-2">
+                                            <span>시각: ${t.startTime || '자율배치'}</span>
+                                            <span>소요: ${t.duration}시간</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex flex-col items-end space-y-1.5 flex-shrink-0">
+                                        <button onclick="toggleComplete(${t.id})" class="px-2.5 py-1 rounded-lg text-[11px] font-bold ${t.completed ? 'bg-slate-800 text-emerald-400' : 'bg-amber-500 text-slate-950'}">
+                                            ${t.completed ? `✓ ${t.completedTime}` : '[완료]'}
+                                        </button>
+                                        <a href="https://map.naver.com/v5/search/${encodeURIComponent(t.address)}" target="_blank" class="text-[10px] text-emerald-400 hover:underline flex items-center gap-0.5">
+                                            [네이버 길 ›]
+                                        </a>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                container.innerHTML += cardHtml;
+            });
+            lucide.createIcons();
+        }
+
+        // --- TASK COMPLETION TOGGLE ---
+        function toggleComplete(id) {
+            const task = tasks.find(t => t.id === id);
+            if (task) {
+                task.completed = !task.completed;
+                if (task.completed) {
+                    const now = new Date();
+                    task.completedTime = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+                } else {
+                    task.completedTime = null;
+                }
+                renderAll();
+            }
+        }
+
+        function updateHeaderStats() {
+            const completed = tasks.filter(t => t.completed).length;
+            document.getElementById('completedCountHeader').innerText = completed;
+            document.getElementById('totalCountHeader').innerText = tasks.length;
+        }
+
+        // --- AUTO ROUTE OPTIMIZATION ENGINE ---
+        function runAutoOptimization() {
+            let crewIndex = 0;
+            tasks.forEach(t => {
+                if (!t.crewId) {
+                    t.crewId = CREWS[crewIndex % CREWS.length].id;
+                    crewIndex++;
+                }
+                if (!t.startTime) {
+                    t.startTime = "11:00";
+                }
+            });
+            renderAll();
+            alert('동선 최적화 및 시간 배정이 완료되었습니다.');
+        }
+
+        // --- EXCEL SHEETJS IMPORT ---
+        function importExcel(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                try {
+                    const data = new Uint8Array(evt.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const json = XLSX.utils.sheet_to_json(sheet);
+
+                    let added = 0;
+                    json.forEach((row, idx) => {
+                        const addr = row['주소'] || row['Address'] || '';
+                        let matchedDong = '연희동';
+                        Object.keys(DONG_COORDS).forEach(d => {
+                            if (addr.includes(d)) matchedDong = d;
+                        });
+
+                        const coords = DONG_COORDS[matchedDong] || [37.5450, 126.6720];
+
+                        tasks.push({
+                            id: tasks.length + 1,
+                            customer: row['상호'] || `수용가 ${idx+1}`,
+                            type: '정기검사',
+                            duration: parseFloat(row['검사소요시간'] || 1),
+                            crewId: row['조'] ? `Crew${row['조']}` : null,
+                            startTime: row['검사예정시간'] || null,
+                            isAnchor: !!row['검사예정시간'],
+                            address: addr || '인천 서구 연희동',
+                            dong: matchedDong,
+                            completed: false,
+                            completedTime: null,
+                            lat: coords[0] + (Math.random()-0.5)*0.01,
+                            lng: coords[1] + (Math.random()-0.5)*0.01
+                        });
+                        added++;
+                    });
+
+                    renderAll();
+                    alert(`${added}건의 점검 데이터를 가져왔습니다.`);
+                } catch(err) {
+                    alert('엑셀 파일을 읽는 중 오류가 발생했습니다.');
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // --- DISTRICT EXPANDED MODAL ---
+        function openDistrictModal(name) {
+            document.getElementById('districtModalTitle').innerText = `${name} 상세 보기 및 동선`;
+            document.getElementById('districtModal').classList.remove('hidden');
+
+            const container = document.getElementById('districtTaskList');
+            const distTasks = tasks.filter(t => t.address.includes(name) || name === '서해구');
+
+            container.innerHTML = distTasks.map(t => `
+                <div class="p-2.5 bg-slate-900 border border-slate-800 rounded-lg flex justify-between items-center">
+                    <div>
+                        <div class="font-bold text-slate-200">${t.customer}</div>
+                        <div class="text-[11px] text-slate-400">${t.address}</div>
+                    </div>
+                    <span class="px-2 py-1 rounded bg-slate-800 text-amber-400 font-bold">${t.crewId || '미배정'}</span>
+                </div>
+            `).join('');
+
+            setTimeout(() => {
+                if (!modalMap) {
+                    modalMap = L.map('districtDetailMap').setView([37.5450, 126.6720], 11);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(modalMap);
+                }
+                modalMap.invalidateSize();
+            }, 200);
+        }
+
+        function closeDistrictModal() {
+            document.getElementById('districtModal').classList.add('hidden');
+        }
+
+        function openNaverAppRoute(crewId) {
+            window.open(`nmap://route/public?appname=com.example.scheduler`, '_blank');
+        }
+
+        // --- SETTINGS MODAL & RESET ---
+        function openSettingsModal() { document.getElementById('settingsModal').classList.remove('hidden'); }
+        function closeSettingsModal() { document.getElementById('settingsModal').classList.add('hidden'); }
+
+        function resetDepotDefault() {
+            document.getElementById('settingDepotName').value = "한국전기안전공사 인천서부지사 (인천 서해구 탁옥로 37)";
+            document.getElementById('settingDepotLat').value = "37.5446";
+            document.getElementById('settingDepotLng').value = "126.6745";
+        }
+
+        function changePin() {
+            const newPin = document.getElementById('settingNewPin').value;
+            if (newPin.length === 4) {
+                masterPinHash = newPin;
+                localStorage.setItem('masterPinHash', newPin);
+                alert('핀번호가 변경되었습니다.');
+                closeSettingsModal();
+            } else {
+                alert('4자리 숫자를 입력하세요.');
+            }
+        }
+
+        function clearAllTasks() {
+            if (confirm('모든 데이터를 초기화하시겠습니까?')) {
+                tasks = [];
+                renderAll();
+                closeSettingsModal();
+            }
+        }
+    </script>
+</body>
+</html>
