@@ -297,6 +297,11 @@
             .tabbar button { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border: none; background: none; color: var(--text-3); font-size: 0.7rem; font-weight: 700; cursor: pointer; }
             .tabbar button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
             .tabbar button.active { color: var(--primary); }
+            /* 우측 하단 Netlify 배지에 '지도' 버튼이 가려지지 않도록, 탭을 왼쪽에 모아 배치 */
+            .tabbar { justify-content: flex-start; align-items: center; gap: 8px; padding-left: 12px; padding-right: 130px; }
+            .tabbar button { flex: 0 0 auto; flex-direction: row; gap: 7px; height: 42px; padding: 0 20px; border-radius: 999px; font-size: 0.92rem; }
+            .tabbar button svg { width: 20px; height: 20px; }
+            .tabbar button.active { background: var(--primary); color: #fff; }
             .modal-overlay { z-index: 3000; }
             .leaflet-bottom { bottom: 0; }
         }
@@ -617,6 +622,7 @@
         let baseAddress = localStorage.getItem('branch_base_address') || "인천광역시 서해구 탁옥로 37";
         let baseLocation = null; 
         let selectedCrewFilter = 'ALL'; 
+        let pendingFitRoute = false;   // true면 다음 지도 그리기가 끝난 뒤 '표시 중인 경로 전체 보기'를 한 번 실행
         let isInitialLoad = true;
         let isAllDatesMode = false;
 
@@ -796,19 +802,24 @@
                 [tabMap, tbMap].forEach(b => b.classList.toggle('active', isMap));
                 [tabList, tbList].forEach(b => b.classList.toggle('active', !isMap));
                 sidebar.classList.toggle('hidden', isMap);
-                if (isMap) setTimeout(() => { map.invalidateSize(); }, 200);
+                if (isMap) setTimeout(() => {
+                    map.invalidateSize();
+                    // 경로가 아직 그려지는 중이면 그리기가 끝난 뒤에 실행되도록 대기 표시
+                    pendingFitRoute = !fitFullRoute(true);
+                }, 200);
             };
             tabList.onclick = tbList.onclick = () => setTab(false);
             tabMap.onclick = tbMap.onclick = () => setTab(true);
         }
 
-        function fitFullRoute() {
+        function fitFullRoute(silent) {
             const bounds = L.latLngBounds([]);
             polylinesLayer.eachLayer(l => { if (l.getBounds) bounds.extend(l.getBounds()); });
             if (!bounds.isValid()) markersLayer.eachLayer(m => { if (m.getLatLng) bounds.extend(m.getLatLng()); });
-            if (!bounds.isValid()) { alert('지도에 표시할 경로가 없습니다.'); return; }
+            if (!bounds.isValid()) { if (silent !== true) alert('지도에 표시할 경로가 없습니다.'); return false; }
             const mobile = window.innerWidth <= 768;
             map.fitBounds(bounds, { paddingTopLeft: [50, 50], paddingBottomRight: [50, mobile ? 100 : 60], maxZoom: 16 });
+            return true;
         }
 
         // ===== 내 위치 (네이버지도 스타일) =====
@@ -2169,6 +2180,11 @@
             if (bounds.length > 0 && isInitialLoad) {
                 map.fitBounds(bounds, { padding: [30, 30] });
             }
+            if (pendingFitRoute && token === renderToken) {
+                pendingFitRoute = false;
+                map.invalidateSize();
+                fitFullRoute(true);
+            }
         }
 
         function deleteCardItem(id) {
@@ -2227,7 +2243,7 @@
             const allChip = document.createElement('div');
             allChip.className = `legend-chip all-chip ${selectedCrewFilter === 'ALL' ? 'active' : ''}`;
             allChip.textContent = '전체 조';
-            allChip.onclick = () => { selectedCrewFilter = 'ALL'; renderLegend(); filterByDate(); };
+            allChip.onclick = () => { selectedCrewFilter = 'ALL'; pendingFitRoute = true; renderLegend(); filterByDate(); };
             container.appendChild(allChip);
 
             crews.forEach(crew => {
@@ -2239,6 +2255,7 @@
                 `;
                 chip.onclick = () => {
                     selectedCrewFilter = crew;
+                    pendingFitRoute = true;
                     renderLegend();
                     filterByDate();
                 };
